@@ -2,6 +2,7 @@ package com.paymentplatform.payment.service;
 
 import com.paymentplatform.payment.domain.enums.PaymentStatus;
 import com.paymentplatform.payment.domain.model.Payment;
+import com.paymentplatform.payment.domain.model.PaymentAttempt;
 import com.paymentplatform.payment.repository.PaymentRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,6 +25,9 @@ class PaymentServiceTest {
     @InjectMocks
     private PaymentService paymentService;
 
+    @Mock
+    private PaymentAttemptService paymentAttemptService;
+
     @Test
     void shouldCreatePayment() {
         UUID orderId = UUID.randomUUID();
@@ -34,6 +38,9 @@ class PaymentServiceTest {
 
         when(paymentRepository.save(any(Payment.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+
+        when(paymentAttemptService.createAttempt(any(UUID.class)))
+                .thenReturn(new PaymentAttempt());
 
         Payment result = paymentService.createPayment(
                 orderId,
@@ -51,6 +58,8 @@ class PaymentServiceTest {
 
         verify(paymentRepository).findByIdempotencyKey("key-123");
         verify(paymentRepository).save(any(Payment.class));
+
+        verify(paymentAttemptService).createAttempt(any(UUID.class));
     }
 
     @Test
@@ -69,6 +78,9 @@ class PaymentServiceTest {
                 "INR",
                 "key-123"
         );
+
+        verify(paymentAttemptService, never())
+                .createAttempt(any(UUID.class));
 
         assertEquals(existingPayment.getPaymentId(), result.getPaymentId());
 

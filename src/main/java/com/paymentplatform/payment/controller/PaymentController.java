@@ -28,10 +28,12 @@ public class PaymentController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public PaymentResponse createPayment(
+            @RequestHeader("X-Merchant-Id") UUID merchantId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody CreatePaymentRequest request
     ) {
         Payment payment = paymentService.createPayment(
+                merchantId,
                 request.orderId(),
                 request.customerId(),
                 request.amount(),
@@ -41,6 +43,7 @@ public class PaymentController {
 
         return new PaymentResponse(
                 payment.getPaymentId(),
+                payment.getMerchantId(),
                 payment.getOrderId(),
                 payment.getCustomerId(),
                 payment.getAmount(),
@@ -81,6 +84,7 @@ public class PaymentController {
 
         return new PaymentResponse(
                 payment.getPaymentId(),
+                payment.getMerchantId(),
                 payment.getOrderId(),
                 payment.getCustomerId(),
                 payment.getAmount(),

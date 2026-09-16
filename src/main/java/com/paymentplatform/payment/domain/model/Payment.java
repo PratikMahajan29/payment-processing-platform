@@ -22,6 +22,9 @@ public class Payment {
     @Column(name = "payment_id", nullable = false)
     private UUID paymentId;
 
+    @Column(name = "merchant_id", nullable = false)
+    private UUID merchantId;
+
     @Column(name = "order_id", nullable = false)
     private UUID orderId;
 
@@ -56,6 +59,14 @@ public class Payment {
 
     public void setPaymentId(UUID paymentId) {
         this.paymentId = paymentId;
+    }
+
+    public UUID getMerchantId() {
+        return merchantId;
+    }
+
+    public void setMerchantId(UUID merchantId) {
+        this.merchantId = merchantId;
     }
 
     public UUID getOrderId() {

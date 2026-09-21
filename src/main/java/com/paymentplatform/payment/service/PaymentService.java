@@ -5,6 +5,7 @@ import com.paymentplatform.payment.domain.enums.PaymentStatus;
 import com.paymentplatform.payment.domain.model.Payment;
 import com.paymentplatform.payment.domain.model.PaymentAttempt;
 import com.paymentplatform.payment.exception.IdempotencyRequestInProgressException;
+import com.paymentplatform.payment.exception.PaymentNotFoundException;
 import com.paymentplatform.payment.gateway.PaymentGateway;
 import com.paymentplatform.payment.gateway.PaymentGatewayResult;
 import com.paymentplatform.payment.repository.PaymentRepository;
@@ -164,7 +165,7 @@ public class PaymentService {
 
         return paymentRepository.findById(paymentId)
                 .orElseThrow(() ->
-                        new IllegalArgumentException(
+                        new PaymentNotFoundException(
                                 "Payment not found: " + paymentId
                         )
                 );

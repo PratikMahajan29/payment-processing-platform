@@ -10,13 +10,31 @@ import java.security.NoSuchAlgorithmException;
 @Service
 public class RequestHashService {
 
+    private final MoneyService moneyService;
+
+    public RequestHashService(MoneyService moneyService) {
+        this.moneyService = moneyService;
+    }
+
     public String hash(CreatePaymentRequest request) {
 
-        String canonicalRequest = String.join("|",
+        long amountInMinorUnits =
+                moneyService.toMinorUnits(
+                        request.amount(),
+                        request.currency()
+                );
+
+        String normalizedCurrency =
+                moneyService.normalizeCurrency(
+                        request.currency()
+                );
+
+        String canonicalRequest = String.join(
+                "|",
                 request.orderId().toString(),
                 request.customerId().toString(),
-                request.amount().toString(),
-                request.currency().trim().toUpperCase()
+                Long.toString(amountInMinorUnits),
+                normalizedCurrency
         );
 
         return sha256(canonicalRequest);
@@ -24,16 +42,20 @@ public class RequestHashService {
 
     private String sha256(String value) {
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            MessageDigest digest =
+                    MessageDigest.getInstance("SHA-256");
 
-            byte[] hash = digest.digest(
-                    value.getBytes(StandardCharsets.UTF_8)
-            );
+            byte[] hash =
+                    digest.digest(
+                            value.getBytes(StandardCharsets.UTF_8)
+                    );
 
             StringBuilder result = new StringBuilder();
 
             for (byte b : hash) {
-                result.append(String.format("%02x", b));
+                result.append(
+                        String.format("%02x", b)
+                );
             }
 
             return result.toString();

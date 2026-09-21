@@ -67,4 +67,28 @@ public class GlobalExceptionHandler {
                 OffsetDateTime.now()
         );
     }
+
+    @ExceptionHandler(InvalidMoneyException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleInvalidMoney(
+            InvalidMoneyException exception
+    ) {
+        return new ErrorResponse(
+                "INVALID_MONEY",
+                exception.getMessage(),
+                OffsetDateTime.now()
+        );
+    }
+
+    @ExceptionHandler(PaymentNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ErrorResponse handlePaymentNotFound(
+            PaymentNotFoundException exception
+    ) {
+        return new ErrorResponse(
+                "PAYMENT_NOT_FOUND",
+                exception.getMessage(),
+                OffsetDateTime.now()
+        );
+    }
 }

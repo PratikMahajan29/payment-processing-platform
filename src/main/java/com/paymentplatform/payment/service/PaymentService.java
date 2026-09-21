@@ -1,19 +1,17 @@
 package com.paymentplatform.payment.service;
 
 import com.paymentplatform.payment.controller.dto.CreatePaymentRequest;
-import com.paymentplatform.payment.domain.enums.PaymentAttemptStatus;
 import com.paymentplatform.payment.domain.enums.PaymentStatus;
 import com.paymentplatform.payment.domain.model.Payment;
 import com.paymentplatform.payment.domain.model.PaymentAttempt;
 import com.paymentplatform.payment.exception.IdempotencyRequestInProgressException;
-import com.paymentplatform.payment.exception.InvalidPaymentStateException;
 import com.paymentplatform.payment.gateway.PaymentGateway;
 import com.paymentplatform.payment.gateway.PaymentGatewayResult;
-import com.paymentplatform.payment.repository.PaymentAttemptRepository;
 import com.paymentplatform.payment.repository.PaymentRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -22,28 +20,28 @@ public class PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final PaymentAttemptService paymentAttemptService;
-    private final PaymentStateMachine paymentStateMachine;
-    private final PaymentGateway paymentGateway;
-    private final PaymentAttemptRepository paymentAttemptRepository;
     private final IdempotencyService idempotencyService;
-    private final PaymentRetryPolicy paymentRetryPolicy;
+    private final MoneyService moneyService;
+    private final PaymentGateway paymentGateway;
+    private final PaymentProcessingTransactionService
+            paymentProcessingTransactionService;
 
     public PaymentService(
             PaymentRepository paymentRepository,
             PaymentAttemptService paymentAttemptService,
-            PaymentStateMachine paymentStateMachine,
-            PaymentGateway paymentGateway,
-            PaymentAttemptRepository paymentAttemptRepository,
             IdempotencyService idempotencyService,
-            PaymentRetryPolicy paymentRetryPolicy
+            MoneyService moneyService,
+            PaymentGateway paymentGateway,
+            PaymentProcessingTransactionService
+                    paymentProcessingTransactionService
     ) {
         this.paymentRepository = paymentRepository;
         this.paymentAttemptService = paymentAttemptService;
-        this.paymentStateMachine = paymentStateMachine;
-        this.paymentGateway = paymentGateway;
-        this.paymentAttemptRepository = paymentAttemptRepository;
         this.idempotencyService = idempotencyService;
-        this.paymentRetryPolicy = paymentRetryPolicy;
+        this.moneyService = moneyService;
+        this.paymentGateway = paymentGateway;
+        this.paymentProcessingTransactionService =
+                paymentProcessingTransactionService;
     }
 
     @Transactional
@@ -51,10 +49,11 @@ public class PaymentService {
             UUID merchantId,
             UUID orderId,
             UUID customerId,
-            long amount,
+            BigDecimal amount,
             String currency,
             String idempotencyKey
     ) {
+
         CreatePaymentRequest request =
                 new CreatePaymentRequest(
                         orderId,
@@ -77,16 +76,22 @@ public class PaymentService {
                         requestHash
                 );
 
-        if (existing.state() == IdempotencyLookupState.COMPLETED) {
+        if (existing.state() ==
+                IdempotencyLookupState.COMPLETED) {
 
-            return paymentRepository.findById(existing.paymentId())
-                    .orElseThrow(() -> new IllegalStateException(
-                            "Idempotency record points to missing payment: "
-                                    + existing.paymentId()
-                    ));
+            return paymentRepository.findById(
+                            existing.paymentId()
+                    )
+                    .orElseThrow(() ->
+                            new IllegalStateException(
+                                    "Idempotency record points to missing payment: "
+                                            + existing.paymentId()
+                            )
+                    );
         }
 
-        if (existing.state() == IdempotencyLookupState.PROCESSING) {
+        if (existing.state() ==
+                IdempotencyLookupState.PROCESSING) {
 
             throw new IdempotencyRequestInProgressException(
                     "A request with this idempotency key is already being processed"
@@ -109,18 +114,22 @@ public class PaymentService {
                             requestHash
                     );
 
-            if (afterClaim.state()
-                    == IdempotencyLookupState.COMPLETED) {
+            if (afterClaim.state() ==
+                    IdempotencyLookupState.COMPLETED) {
 
-                return paymentRepository.findById(afterClaim.paymentId())
-                        .orElseThrow(() -> new IllegalStateException(
-                                "Idempotency record points to missing payment: "
-                                        + afterClaim.paymentId()
-                        ));
+                return paymentRepository.findById(
+                                afterClaim.paymentId()
+                        )
+                        .orElseThrow(() ->
+                                new IllegalStateException(
+                                        "Idempotency record points to missing payment: "
+                                                + afterClaim.paymentId()
+                                )
+                        );
             }
 
-            if (afterClaim.state()
-                    == IdempotencyLookupState.PROCESSING) {
+            if (afterClaim.state() ==
+                    IdempotencyLookupState.PROCESSING) {
 
                 throw new IdempotencyRequestInProgressException(
                         "A request with this idempotency key is already being processed"
@@ -132,14 +141,15 @@ public class PaymentService {
             );
         }
 
-        Payment savedPayment = createNewPayment(
-                merchantId,
-                orderId,
-                customerId,
-                amount,
-                currency,
-                idempotencyKey
-        );
+        Payment savedPayment =
+                createNewPayment(
+                        merchantId,
+                        orderId,
+                        customerId,
+                        amount,
+                        currency,
+                        idempotencyKey
+                );
 
         idempotencyService.complete(
                 merchantId,
@@ -150,26 +160,102 @@ public class PaymentService {
         return savedPayment;
     }
 
+    public Payment getPayment(UUID paymentId) {
+
+        return paymentRepository.findById(paymentId)
+                .orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "Payment not found: " + paymentId
+                        )
+                );
+    }
+
+    public Payment processPayment(UUID paymentId) {
+
+        PaymentAttempt attempt =
+                paymentProcessingTransactionService
+                        .prepareInitialProcessing(paymentId);
+
+        PaymentGatewayResult result =
+                paymentGateway.process(attempt);
+
+        return paymentProcessingTransactionService
+                .completeGatewayAttempt(
+                        attempt.getAttemptId(),
+                        result
+                );
+    }
+
+    public Payment retryPayment(UUID paymentId) {
+
+        PaymentAttempt retryAttempt =
+                paymentProcessingTransactionService
+                        .prepareRetryProcessing(paymentId);
+
+        PaymentGatewayResult result =
+                paymentGateway.process(retryAttempt);
+
+        return paymentProcessingTransactionService
+                .completeGatewayAttempt(
+                        retryAttempt.getAttemptId(),
+                        result
+                );
+    }
+
     private Payment createNewPayment(
             UUID merchantId,
             UUID orderId,
             UUID customerId,
-            long amount,
+            BigDecimal amount,
             String currency,
             String idempotencyKey
     ) {
+
+        long minorUnits =
+                moneyService.toMinorUnits(
+                        amount,
+                        currency
+                );
+
+        String normalizedCurrency =
+                moneyService.normalizeCurrency(currency);
+
         Payment payment = new Payment();
 
-        payment.setPaymentId(UUID.randomUUID());
-        payment.setMerchantId(merchantId);
-        payment.setOrderId(orderId);
-        payment.setCustomerId(customerId);
-        payment.setAmount(amount);
-        payment.setCurrency(currency.trim().toUpperCase());
-        payment.setStatus(PaymentStatus.CREATED);
-        payment.setIdempotencyKey(idempotencyKey);
+        payment.setPaymentId(
+                UUID.randomUUID()
+        );
 
-        OffsetDateTime now = OffsetDateTime.now();
+        payment.setMerchantId(
+                merchantId
+        );
+
+        payment.setOrderId(
+                orderId
+        );
+
+        payment.setCustomerId(
+                customerId
+        );
+
+        payment.setAmount(
+                minorUnits
+        );
+
+        payment.setCurrency(
+                normalizedCurrency
+        );
+
+        payment.setStatus(
+                PaymentStatus.CREATED
+        );
+
+        payment.setIdempotencyKey(
+                idempotencyKey
+        );
+
+        OffsetDateTime now =
+                OffsetDateTime.now();
 
         payment.setCreatedAt(now);
         payment.setUpdatedAt(now);
@@ -182,158 +268,5 @@ public class PaymentService {
         );
 
         return savedPayment;
-    }
-
-    @Transactional
-    public Payment processPayment(UUID paymentId) {
-
-        Payment payment =
-                paymentRepository.findByIdForUpdate(paymentId)
-                        .orElseThrow(() ->
-                                new IllegalArgumentException(
-                                        "Payment not found: "
-                                                + paymentId
-                                )
-                        );
-
-        if (payment.getStatus() != PaymentStatus.CREATED) {
-            throw new InvalidPaymentStateException(
-                    "Payment can only be initially processed from CREATED state: "
-                            + paymentId
-            );
-        }
-
-        PaymentAttempt attempt =
-                paymentAttemptRepository
-                        .findTopByPaymentIdOrderByAttemptNumberDesc(paymentId)
-                        .orElseThrow(() ->
-                                new IllegalStateException(
-                                        "No payment attempt found for payment: "
-                                                + paymentId
-                                )
-                        );
-
-        paymentStateMachine.moveTo(
-                payment,
-                PaymentStatus.PENDING
-        );
-
-        return processGatewayAttempt(
-                payment,
-                attempt
-        );
-    }
-
-    @Transactional
-    public Payment retryPayment(UUID paymentId) {
-
-        Payment payment =
-                paymentRepository.findByIdForUpdate(paymentId)
-                        .orElseThrow(() ->
-                                new IllegalArgumentException(
-                                        "Payment not found: "
-                                                + paymentId
-                                )
-                        );
-
-        if (payment.getStatus() != PaymentStatus.FAILED) {
-            throw new InvalidPaymentStateException(
-                    "Payment can only be retried from FAILED state: "
-                            + paymentId
-            );
-        }
-
-        PaymentAttempt latestAttempt =
-                paymentAttemptRepository
-                        .findTopByPaymentIdOrderByAttemptNumberDesc(paymentId)
-                        .orElseThrow(() ->
-                                new IllegalStateException(
-                                        "No payment attempt found for payment: "
-                                                + paymentId
-                                )
-                        );
-
-        paymentRetryPolicy.validateCanRetry(
-                latestAttempt.getAttemptNumber()
-        );
-
-        paymentStateMachine.moveTo(
-                payment,
-                PaymentStatus.PENDING
-        );
-
-        PaymentAttempt retryAttempt =
-                paymentAttemptService.createAttempt(paymentId);
-
-        return processGatewayAttempt(
-                payment,
-                retryAttempt
-        );
-    }
-
-    private Payment processGatewayAttempt(
-            Payment payment,
-            PaymentAttempt attempt
-    ) {
-        PaymentGatewayResult result =
-                paymentGateway.process(attempt);
-
-        if (result.successful()) {
-
-            attempt.setStatus(
-                    PaymentAttemptStatus.SUCCEEDED
-            );
-
-            attempt.setGateway("MOCK");
-
-            attempt.setGatewayTransactionId(
-                    result.transactionId()
-            );
-
-            attempt.setFailureCode(null);
-            attempt.setFailureMessage(null);
-
-            attempt.setCompletedAt(
-                    OffsetDateTime.now()
-            );
-
-            paymentStateMachine.moveTo(
-                    payment,
-                    PaymentStatus.SUCCEEDED
-            );
-
-        } else {
-
-            attempt.setStatus(
-                    PaymentAttemptStatus.FAILED
-            );
-
-            attempt.setGateway("MOCK");
-
-            attempt.setGatewayTransactionId(null);
-
-            attempt.setFailureCode(
-                    result.failureCode()
-            );
-
-            attempt.setFailureMessage(
-                    result.failureMessage()
-            );
-
-            attempt.setCompletedAt(
-                    OffsetDateTime.now()
-            );
-
-            paymentStateMachine.moveTo(
-                    payment,
-                    PaymentStatus.FAILED
-            );
-        }
-
-        payment.setUpdatedAt(
-                OffsetDateTime.now()
-        );
-
-        return paymentRepository.save(payment);
     }
 }

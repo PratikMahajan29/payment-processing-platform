@@ -4,6 +4,7 @@ import com.paymentplatform.payment.controller.dto.CreatePaymentRequest;
 import com.paymentplatform.payment.controller.dto.PaymentAttemptResponse;
 import com.paymentplatform.payment.controller.dto.PaymentResponse;
 import com.paymentplatform.payment.domain.model.Payment;
+import com.paymentplatform.payment.service.MoneyService;
 import com.paymentplatform.payment.service.PaymentAttemptService;
 import com.paymentplatform.payment.service.PaymentService;
 import jakarta.validation.Valid;
@@ -19,10 +20,16 @@ public class PaymentController {
 
     private final PaymentService paymentService;
     private final PaymentAttemptService paymentAttemptService;
+    private final MoneyService moneyService;
 
-    public PaymentController(PaymentService paymentService, PaymentAttemptService paymentAttemptService) {
+    public PaymentController(
+            PaymentService paymentService,
+            PaymentAttemptService paymentAttemptService,
+            MoneyService moneyService
+    ) {
         this.paymentService = paymentService;
         this.paymentAttemptService = paymentAttemptService;
+        this.moneyService = moneyService;
     }
 
     @PostMapping
@@ -41,17 +48,15 @@ public class PaymentController {
                 idempotencyKey
         );
 
-        return new PaymentResponse(
-                payment.getPaymentId(),
-                payment.getMerchantId(),
-                payment.getOrderId(),
-                payment.getCustomerId(),
-                payment.getAmount(),
-                payment.getCurrency(),
-                payment.getStatus(),
-                payment.getIdempotencyKey(),
-                payment.getCreatedAt(),
-                payment.getUpdatedAt()
+        return toResponse(payment);
+    }
+
+    @GetMapping("/{paymentId}")
+    public PaymentResponse getPayment(
+            @PathVariable UUID paymentId
+    ) {
+        return toResponse(
+                paymentService.getPayment(paymentId)
         );
     }
 
@@ -82,33 +87,28 @@ public class PaymentController {
     ) {
         Payment payment = paymentService.processPayment(paymentId);
 
-        return new PaymentResponse(
-                payment.getPaymentId(),
-                payment.getMerchantId(),
-                payment.getOrderId(),
-                payment.getCustomerId(),
-                payment.getAmount(),
-                payment.getCurrency(),
-                payment.getStatus(),
-                payment.getIdempotencyKey(),
-                payment.getCreatedAt(),
-                payment.getUpdatedAt()
-        );
+        return toResponse(payment);
     }
 
     @PostMapping("/{paymentId}/retry")
     public PaymentResponse retryPayment(
             @PathVariable UUID paymentId
     ) {
-        Payment payment =
-                paymentService.retryPayment(paymentId);
+        Payment payment = paymentService.retryPayment(paymentId);
 
+        return toResponse(payment);
+    }
+
+    private PaymentResponse toResponse(Payment payment) {
         return new PaymentResponse(
                 payment.getPaymentId(),
                 payment.getMerchantId(),
                 payment.getOrderId(),
                 payment.getCustomerId(),
-                payment.getAmount(),
+                moneyService.toMajorUnits(
+                        payment.getAmount(),
+                        payment.getCurrency()
+                ),
                 payment.getCurrency(),
                 payment.getStatus(),
                 payment.getIdempotencyKey(),

@@ -1,7 +1,7 @@
 package com.paymentplatform.payment;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
@@ -30,8 +30,8 @@ class PaymentIdempotencyConcurrencyTest {
     private final HttpClient httpClient =
             HttpClient.newHttpClient();
 
-    private final ObjectMapper objectMapper =
-            new ObjectMapper();
+    private final JsonMapper objectMapper =
+            JsonMapper.builder().build();
 
     @Test
     void shouldCreateOnlyOnePaymentForConcurrentRequests()

@@ -23,7 +23,7 @@ class PaymentIdempotencyConcurrencyTest {
             "http://localhost:8080";
 
     private static final String MERCHANT_ID =
-            "11111111-1111-1111-1111-1111111111112";
+            "11111111-1111-1111-1111-111111111111";
 
     private static final int REQUEST_COUNT = 10;
 

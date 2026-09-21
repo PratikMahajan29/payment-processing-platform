@@ -5,6 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 
 import java.time.OffsetDateTime;
 
@@ -41,5 +42,29 @@ public class GlobalExceptionHandler {
                         exception.getMessage(),
                         OffsetDateTime.now()
                 ));
+    }
+
+    @ExceptionHandler(InvalidPaymentStateException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ErrorResponse handleInvalidPaymentState(
+            InvalidPaymentStateException exception
+    ) {
+        return new ErrorResponse(
+                "INVALID_PAYMENT_STATE",
+                exception.getMessage(),
+                OffsetDateTime.now()
+        );
+    }
+
+    @ExceptionHandler(RetryLimitExceededException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ErrorResponse handleRetryLimitExceeded(
+            RetryLimitExceededException exception
+    ) {
+        return new ErrorResponse(
+                "RETRY_LIMIT_EXCEEDED",
+                exception.getMessage(),
+                OffsetDateTime.now()
+        );
     }
 }

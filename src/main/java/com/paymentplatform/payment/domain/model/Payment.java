@@ -8,13 +8,7 @@ import java.util.UUID;
 
 @Entity
 @Table(
-        name = "payments",
-        uniqueConstraints = {
-                @UniqueConstraint(
-                        name = "uq_payments_idempotency_key",
-                        columnNames = "idempotency_key"
-                )
-        }
+        name = "payments"
 )
 public class Payment {
 

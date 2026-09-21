@@ -95,4 +95,25 @@ public class PaymentController {
                 payment.getUpdatedAt()
         );
     }
+
+    @PostMapping("/{paymentId}/retry")
+    public PaymentResponse retryPayment(
+            @PathVariable UUID paymentId
+    ) {
+        Payment payment =
+                paymentService.retryPayment(paymentId);
+
+        return new PaymentResponse(
+                payment.getPaymentId(),
+                payment.getMerchantId(),
+                payment.getOrderId(),
+                payment.getCustomerId(),
+                payment.getAmount(),
+                payment.getCurrency(),
+                payment.getStatus(),
+                payment.getIdempotencyKey(),
+                payment.getCreatedAt(),
+                payment.getUpdatedAt()
+        );
+    }
 }

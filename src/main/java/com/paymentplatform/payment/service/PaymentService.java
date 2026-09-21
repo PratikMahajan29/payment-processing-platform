@@ -15,7 +15,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
-import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -27,6 +26,7 @@ public class PaymentService {
     private final PaymentGateway paymentGateway;
     private final PaymentAttemptRepository paymentAttemptRepository;
     private final IdempotencyService idempotencyService;
+    private final PaymentRetryPolicy paymentRetryPolicy;
 
     public PaymentService(
             PaymentRepository paymentRepository,
@@ -34,7 +34,8 @@ public class PaymentService {
             PaymentStateMachine paymentStateMachine,
             PaymentGateway paymentGateway,
             PaymentAttemptRepository paymentAttemptRepository,
-            IdempotencyService idempotencyService
+            IdempotencyService idempotencyService,
+            PaymentRetryPolicy paymentRetryPolicy
     ) {
         this.paymentRepository = paymentRepository;
         this.paymentAttemptService = paymentAttemptService;
@@ -42,6 +43,7 @@ public class PaymentService {
         this.paymentGateway = paymentGateway;
         this.paymentAttemptRepository = paymentAttemptRepository;
         this.idempotencyService = idempotencyService;
+        this.paymentRetryPolicy = paymentRetryPolicy;
     }
 
     @Transactional
@@ -168,14 +170,13 @@ public class PaymentService {
         payment.setIdempotencyKey(idempotencyKey);
 
         OffsetDateTime now = OffsetDateTime.now();
+
         payment.setCreatedAt(now);
         payment.setUpdatedAt(now);
 
-        Payment savedPayment = paymentRepository.save(payment);
+        Payment savedPayment =
+                paymentRepository.save(payment);
 
-        /*
-         * The attempt references the payment ID generated above.
-         */
         paymentAttemptService.createAttempt(
                 savedPayment.getPaymentId()
         );
@@ -186,62 +187,115 @@ public class PaymentService {
     @Transactional
     public Payment processPayment(UUID paymentId) {
 
-        Payment payment = paymentRepository.findByIdForUpdate(paymentId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "Payment not found: " + paymentId
-                        )
-                );
+        Payment payment =
+                paymentRepository.findByIdForUpdate(paymentId)
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
+                                        "Payment not found: "
+                                                + paymentId
+                                )
+                        );
 
-        if (payment.getStatus() == PaymentStatus.SUCCEEDED) {
+        if (payment.getStatus() != PaymentStatus.CREATED) {
             throw new InvalidPaymentStateException(
-                    "Payment has already succeeded: " + paymentId
+                    "Payment can only be initially processed from CREATED state: "
+                            + paymentId
             );
         }
 
-        if (payment.getStatus() == PaymentStatus.CANCELLED) {
-            throw new InvalidPaymentStateException(
-                    "Payment has been cancelled: " + paymentId
-            );
-        }
-
-        /*
-         * Capture the current state before changing it.
-         * This lets us distinguish:
-         *
-         * CREATED -> first attempt
-         * FAILED  -> retry attempt
-         */
-        boolean isRetry = payment.getStatus() == PaymentStatus.FAILED;
+        PaymentAttempt attempt =
+                paymentAttemptRepository
+                        .findTopByPaymentIdOrderByAttemptNumberDesc(paymentId)
+                        .orElseThrow(() ->
+                                new IllegalStateException(
+                                        "No payment attempt found for payment: "
+                                                + paymentId
+                                )
+                        );
 
         paymentStateMachine.moveTo(
                 payment,
                 PaymentStatus.PENDING
         );
 
-        PaymentAttempt attempt;
+        return processGatewayAttempt(
+                payment,
+                attempt
+        );
+    }
 
-        if (isRetry) {
-            attempt = paymentAttemptService.createAttempt(paymentId);
-        } else {
-            attempt = paymentAttemptRepository
-                    .findTopByPaymentIdOrderByAttemptNumberDesc(paymentId)
-                    .orElseThrow(() ->
-                            new IllegalStateException(
-                                    "No payment attempt found for payment: "
-                                            + paymentId
-                            )
-                    );
+    @Transactional
+    public Payment retryPayment(UUID paymentId) {
+
+        Payment payment =
+                paymentRepository.findByIdForUpdate(paymentId)
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
+                                        "Payment not found: "
+                                                + paymentId
+                                )
+                        );
+
+        if (payment.getStatus() != PaymentStatus.FAILED) {
+            throw new InvalidPaymentStateException(
+                    "Payment can only be retried from FAILED state: "
+                            + paymentId
+            );
         }
 
-        PaymentGatewayResult result = paymentGateway.process(attempt);
+        PaymentAttempt latestAttempt =
+                paymentAttemptRepository
+                        .findTopByPaymentIdOrderByAttemptNumberDesc(paymentId)
+                        .orElseThrow(() ->
+                                new IllegalStateException(
+                                        "No payment attempt found for payment: "
+                                                + paymentId
+                                )
+                        );
+
+        paymentRetryPolicy.validateCanRetry(
+                latestAttempt.getAttemptNumber()
+        );
+
+        paymentStateMachine.moveTo(
+                payment,
+                PaymentStatus.PENDING
+        );
+
+        PaymentAttempt retryAttempt =
+                paymentAttemptService.createAttempt(paymentId);
+
+        return processGatewayAttempt(
+                payment,
+                retryAttempt
+        );
+    }
+
+    private Payment processGatewayAttempt(
+            Payment payment,
+            PaymentAttempt attempt
+    ) {
+        PaymentGatewayResult result =
+                paymentGateway.process(attempt);
 
         if (result.successful()) {
 
-            attempt.setStatus(PaymentAttemptStatus.SUCCEEDED);
+            attempt.setStatus(
+                    PaymentAttemptStatus.SUCCEEDED
+            );
+
             attempt.setGateway("MOCK");
-            attempt.setGatewayTransactionId(result.transactionId());
-            attempt.setCompletedAt(OffsetDateTime.now());
+
+            attempt.setGatewayTransactionId(
+                    result.transactionId()
+            );
+
+            attempt.setFailureCode(null);
+            attempt.setFailureMessage(null);
+
+            attempt.setCompletedAt(
+                    OffsetDateTime.now()
+            );
 
             paymentStateMachine.moveTo(
                     payment,
@@ -250,11 +304,25 @@ public class PaymentService {
 
         } else {
 
-            attempt.setStatus(PaymentAttemptStatus.FAILED);
+            attempt.setStatus(
+                    PaymentAttemptStatus.FAILED
+            );
+
             attempt.setGateway("MOCK");
-            attempt.setFailureCode(result.failureCode());
-            attempt.setFailureMessage(result.failureMessage());
-            attempt.setCompletedAt(OffsetDateTime.now());
+
+            attempt.setGatewayTransactionId(null);
+
+            attempt.setFailureCode(
+                    result.failureCode()
+            );
+
+            attempt.setFailureMessage(
+                    result.failureMessage()
+            );
+
+            attempt.setCompletedAt(
+                    OffsetDateTime.now()
+            );
 
             paymentStateMachine.moveTo(
                     payment,
@@ -262,7 +330,9 @@ public class PaymentService {
             );
         }
 
-        payment.setUpdatedAt(OffsetDateTime.now());
+        payment.setUpdatedAt(
+                OffsetDateTime.now()
+        );
 
         return paymentRepository.save(payment);
     }

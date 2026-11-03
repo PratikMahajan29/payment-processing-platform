@@ -14,13 +14,19 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.*;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT
+)
 class PaymentIdempotencyConcurrencyTest {
 
-    private static final String BASE_URL =
-            "http://localhost:8080";
+    @LocalServerPort
+    private int port;
 
     private static final String MERCHANT_ID =
             "11111111-1111-1111-1111-111111111111";
@@ -69,8 +75,7 @@ class PaymentIdempotencyConcurrencyTest {
                             HttpRequest request =
                                     HttpRequest.newBuilder()
                                             .uri(URI.create(
-                                                    BASE_URL
-                                                            + "/api/v1/payments"
+                                                    "http://localhost:" + port + "/api/v1/payments"
                                             ))
                                             .header(
                                                     "Content-Type",

@@ -12,39 +12,81 @@ import java.util.UUID;
         uniqueConstraints = {
                 @UniqueConstraint(
                         name = "uq_payment_attempt_number",
-                        columnNames = {"payment_id", "attempt_number"}
+                        columnNames = {
+                                "payment_id",
+                                "attempt_number"
+                        }
+                ),
+                @UniqueConstraint(
+                        name = "uq_payment_attempt_gateway_idempotency_key",
+                        columnNames = {
+                                "gateway_idempotency_key"
+                        }
                 )
         }
 )
 public class PaymentAttempt {
 
     @Id
-    @Column(name = "attempt_id", nullable = false)
+    @Column(
+            name = "attempt_id",
+            nullable = false
+    )
     private UUID attemptId;
 
-    @Column(name = "payment_id", nullable = false)
+    @Column(
+            name = "payment_id",
+            nullable = false
+    )
     private UUID paymentId;
 
-    @Column(name = "attempt_number", nullable = false)
+    @Column(
+            name = "attempt_number",
+            nullable = false
+    )
     private Integer attemptNumber;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 20)
+    @Column(
+            name = "status",
+            nullable = false,
+            length = 20
+    )
     private PaymentAttemptStatus status;
 
-    @Column(name = "gateway", length = 50)
+    @Column(
+            name = "gateway_idempotency_key",
+            nullable = false,
+            length = 100,
+            unique = true
+    )
+    private String gatewayIdempotencyKey;
+
+    @Column(
+            name = "gateway",
+            length = 50
+    )
     private String gateway;
 
-    @Column(name = "gateway_transaction_id", length = 100)
+    @Column(
+            name = "gateway_transaction_id",
+            length = 100
+    )
     private String gatewayTransactionId;
 
-    @Column(name = "failure_code", length = 50)
+    @Column(
+            name = "failure_code",
+            length = 50
+    )
     private String failureCode;
 
     @Column(name = "failure_message")
     private String failureMessage;
 
-    @Column(name = "created_at", nullable = false)
+    @Column(
+            name = "created_at",
+            nullable = false
+    )
     private OffsetDateTime createdAt;
 
     @Column(name = "completed_at")
@@ -85,6 +127,17 @@ public class PaymentAttempt {
         this.status = status;
     }
 
+    public String getGatewayIdempotencyKey() {
+        return gatewayIdempotencyKey;
+    }
+
+    public void setGatewayIdempotencyKey(
+            String gatewayIdempotencyKey
+    ) {
+        this.gatewayIdempotencyKey =
+                gatewayIdempotencyKey;
+    }
+
     public String getGateway() {
         return gateway;
     }
@@ -97,8 +150,11 @@ public class PaymentAttempt {
         return gatewayTransactionId;
     }
 
-    public void setGatewayTransactionId(String gatewayTransactionId) {
-        this.gatewayTransactionId = gatewayTransactionId;
+    public void setGatewayTransactionId(
+            String gatewayTransactionId
+    ) {
+        this.gatewayTransactionId =
+                gatewayTransactionId;
     }
 
     public String getFailureCode() {
@@ -113,7 +169,9 @@ public class PaymentAttempt {
         return failureMessage;
     }
 
-    public void setFailureMessage(String failureMessage) {
+    public void setFailureMessage(
+            String failureMessage
+    ) {
         this.failureMessage = failureMessage;
     }
 
@@ -121,7 +179,9 @@ public class PaymentAttempt {
         return createdAt;
     }
 
-    public void setCreatedAt(OffsetDateTime createdAt) {
+    public void setCreatedAt(
+            OffsetDateTime createdAt
+    ) {
         this.createdAt = createdAt;
     }
 
@@ -129,7 +189,9 @@ public class PaymentAttempt {
         return completedAt;
     }
 
-    public void setCompletedAt(OffsetDateTime completedAt) {
+    public void setCompletedAt(
+            OffsetDateTime completedAt
+    ) {
         this.completedAt = completedAt;
     }
 }

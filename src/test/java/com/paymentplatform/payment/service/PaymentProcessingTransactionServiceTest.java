@@ -1,6 +1,7 @@
 package com.paymentplatform.payment.service;
 
 import com.paymentplatform.payment.domain.enums.PaymentAttemptStatus;
+import com.paymentplatform.payment.domain.enums.PaymentEventType;
 import com.paymentplatform.payment.domain.enums.PaymentStatus;
 import com.paymentplatform.payment.domain.model.Payment;
 import com.paymentplatform.payment.domain.model.PaymentAttempt;
@@ -41,6 +42,9 @@ class PaymentProcessingTransactionServiceTest {
     @Mock
     private PaymentRetryPolicy paymentRetryPolicy;
 
+    @Mock
+    private OutboxEventService outboxEventService;
+
     @InjectMocks
     private PaymentProcessingTransactionService service;
 
@@ -53,39 +57,69 @@ class PaymentProcessingTransactionServiceTest {
         payment.setPaymentId(paymentId);
         payment.setStatus(PaymentStatus.CREATED);
 
-        PaymentAttempt attempt = pendingAttempt(
-                paymentId,
-                1
+        PaymentAttempt attempt =
+                pendingAttempt(
+                        paymentId,
+                        1
+                );
+
+        when(
+                paymentRepository.findByIdForUpdate(paymentId)
+        ).thenReturn(
+                Optional.of(payment)
         );
 
-        when(paymentRepository.findByIdForUpdate(paymentId))
-                .thenReturn(Optional.of(payment));
+        when(
+                paymentAttemptRepository
+                        .findTopByPaymentIdOrderByAttemptNumberDesc(paymentId)
+        ).thenReturn(
+                Optional.of(attempt)
+        );
 
-        when(paymentAttemptRepository
-                .findTopByPaymentIdOrderByAttemptNumberDesc(paymentId))
-                .thenReturn(Optional.of(attempt));
-
-        when(paymentRepository.save(payment))
-                .thenReturn(payment);
+        when(
+                paymentRepository.save(payment)
+        ).thenReturn(
+                payment
+        );
 
         PaymentAttempt result =
-                service.prepareInitialProcessing(paymentId);
+                service.prepareInitialProcessing(
+                        paymentId
+                );
 
-        assertSame(attempt, result);
+        assertSame(
+                attempt,
+                result
+        );
 
         assertEquals(
                 PaymentStatus.PENDING,
                 payment.getStatus()
         );
 
-        verify(paymentRepository)
-                .findByIdForUpdate(paymentId);
+        verify(
+                paymentRepository
+        ).findByIdForUpdate(
+                paymentId
+        );
 
-        verify(paymentRepository)
-                .save(payment);
+        verify(
+                paymentRepository
+        ).save(
+                payment
+        );
 
-        verifyNoInteractions(paymentRetryPolicy);
-        verifyNoInteractions(paymentAttemptService);
+        verifyNoInteractions(
+                paymentRetryPolicy
+        );
+
+        verifyNoInteractions(
+                paymentAttemptService
+        );
+
+        verifyNoInteractions(
+                outboxEventService
+        );
     }
 
     @Test
@@ -113,25 +147,41 @@ class PaymentProcessingTransactionServiceTest {
                         2
                 );
 
-        when(paymentRepository.findByIdForUpdate(paymentId))
-                .thenReturn(Optional.of(payment));
+        when(
+                paymentRepository.findByIdForUpdate(paymentId)
+        ).thenReturn(
+                Optional.of(payment)
+        );
 
-        when(paymentAttemptRepository
-                .findTopByPaymentIdOrderByAttemptNumberDesc(paymentId))
-                .thenReturn(Optional.of(latestAttempt));
+        when(
+                paymentAttemptRepository
+                        .findTopByPaymentIdOrderByAttemptNumberDesc(paymentId)
+        ).thenReturn(
+                Optional.of(latestAttempt)
+        );
 
         doNothing()
                 .when(paymentRetryPolicy)
                 .validateCanRetry(1);
 
-        when(paymentAttemptService.createAttempt(paymentId))
-                .thenReturn(retryAttempt);
+        when(
+                paymentAttemptService.createAttempt(
+                        paymentId
+                )
+        ).thenReturn(
+                retryAttempt
+        );
 
-        when(paymentRepository.save(payment))
-                .thenReturn(payment);
+        when(
+                paymentRepository.save(payment)
+        ).thenReturn(
+                payment
+        );
 
         PaymentAttempt result =
-                service.prepareRetryProcessing(paymentId);
+                service.prepareRetryProcessing(
+                        paymentId
+                );
 
         assertSame(
                 retryAttempt,
@@ -143,14 +193,27 @@ class PaymentProcessingTransactionServiceTest {
                 payment.getStatus()
         );
 
-        verify(paymentRetryPolicy)
-                .validateCanRetry(1);
+        verify(
+                paymentRetryPolicy
+        ).validateCanRetry(
+                1
+        );
 
-        verify(paymentAttemptService)
-                .createAttempt(paymentId);
+        verify(
+                paymentAttemptService
+        ).createAttempt(
+                paymentId
+        );
 
-        verify(paymentRepository)
-                .save(payment);
+        verify(
+                paymentRepository
+        ).save(
+                payment
+        );
+
+        verifyNoInteractions(
+                outboxEventService
+        );
     }
 
     @Test
@@ -169,26 +232,51 @@ class PaymentProcessingTransactionServiceTest {
                         1
                 );
 
-        attempt.setAttemptId(attemptId);
+        attempt.setAttemptId(
+                attemptId
+        );
 
-        when(paymentAttemptRepository.findById(attemptId))
-                .thenReturn(Optional.of(attempt));
+        PaymentGatewayResult gatewayResult =
+                PaymentGatewayResult.success(
+                        "MOCK-TXN-1"
+                );
 
-        when(paymentRepository.findByIdForUpdate(paymentId))
-                .thenReturn(Optional.of(payment));
+        when(
+                paymentAttemptRepository.findById(
+                        attemptId
+                )
+        ).thenReturn(
+                Optional.of(attempt)
+        );
 
-        when(paymentAttemptRepository.save(attempt))
-                .thenReturn(attempt);
+        when(
+                paymentRepository.findByIdForUpdate(
+                        paymentId
+                )
+        ).thenReturn(
+                Optional.of(payment)
+        );
 
-        when(paymentRepository.save(payment))
-                .thenReturn(payment);
+        when(
+                paymentAttemptRepository.save(
+                        attempt
+                )
+        ).thenReturn(
+                attempt
+        );
+
+        when(
+                paymentRepository.save(
+                        payment
+                )
+        ).thenReturn(
+                payment
+        );
 
         Payment result =
                 service.completeGatewayAttempt(
                         attemptId,
-                        PaymentGatewayResult.success(
-                                "MOCK-TXN-1"
-                        )
+                        gatewayResult
                 );
 
         assertSame(
@@ -228,11 +316,24 @@ class PaymentProcessingTransactionServiceTest {
                 payment.getStatus()
         );
 
-        verify(paymentAttemptRepository)
-                .save(attempt);
+        verify(
+                paymentAttemptRepository
+        ).save(
+                attempt
+        );
 
-        verify(paymentRepository)
-                .save(payment);
+        verify(
+                paymentRepository
+        ).save(
+                payment
+        );
+
+        verify(
+                outboxEventService
+        ).createPaymentEvent(
+                payment,
+                PaymentEventType.PAYMENT_SUCCEEDED
+        );
     }
 
     @Test
@@ -251,27 +352,52 @@ class PaymentProcessingTransactionServiceTest {
                         1
                 );
 
-        attempt.setAttemptId(attemptId);
+        attempt.setAttemptId(
+                attemptId
+        );
 
-        when(paymentAttemptRepository.findById(attemptId))
-                .thenReturn(Optional.of(attempt));
+        PaymentGatewayResult gatewayResult =
+                PaymentGatewayResult.failure(
+                        "MOCK_FAILURE",
+                        "Gateway failed"
+                );
 
-        when(paymentRepository.findByIdForUpdate(paymentId))
-                .thenReturn(Optional.of(payment));
+        when(
+                paymentAttemptRepository.findById(
+                        attemptId
+                )
+        ).thenReturn(
+                Optional.of(attempt)
+        );
 
-        when(paymentAttemptRepository.save(attempt))
-                .thenReturn(attempt);
+        when(
+                paymentRepository.findByIdForUpdate(
+                        paymentId
+                )
+        ).thenReturn(
+                Optional.of(payment)
+        );
 
-        when(paymentRepository.save(payment))
-                .thenReturn(payment);
+        when(
+                paymentAttemptRepository.save(
+                        attempt
+                )
+        ).thenReturn(
+                attempt
+        );
+
+        when(
+                paymentRepository.save(
+                        payment
+                )
+        ).thenReturn(
+                payment
+        );
 
         Payment result =
                 service.completeGatewayAttempt(
                         attemptId,
-                        PaymentGatewayResult.failure(
-                                "MOCK_FAILURE",
-                                "Gateway failed"
-                        )
+                        gatewayResult
                 );
 
         assertSame(
@@ -311,6 +437,123 @@ class PaymentProcessingTransactionServiceTest {
                 PaymentStatus.FAILED,
                 payment.getStatus()
         );
+
+        verify(
+                paymentAttemptRepository
+        ).save(
+                attempt
+        );
+
+        verify(
+                paymentRepository
+        ).save(
+                payment
+        );
+
+        verify(
+                outboxEventService
+        ).createPaymentEvent(
+                payment,
+                PaymentEventType.PAYMENT_FAILED
+        );
+    }
+
+    @Test
+    void shouldNotSavePaymentOrAttemptWhenOutboxCreationFails() {
+
+        UUID paymentId = UUID.randomUUID();
+        UUID attemptId = UUID.randomUUID();
+
+        Payment payment = new Payment();
+        payment.setPaymentId(paymentId);
+        payment.setStatus(PaymentStatus.PENDING);
+
+        PaymentAttempt attempt =
+                pendingAttempt(
+                        paymentId,
+                        1
+                );
+
+        attempt.setAttemptId(
+                attemptId
+        );
+
+        PaymentGatewayResult gatewayResult =
+                PaymentGatewayResult.success(
+                        "MOCK-TXN-OUTBOX-FAIL"
+                );
+
+        when(
+                paymentAttemptRepository.findById(
+                        attemptId
+                )
+        ).thenReturn(
+                Optional.of(attempt)
+        );
+
+        when(
+                paymentRepository.findByIdForUpdate(
+                        paymentId
+                )
+        ).thenReturn(
+                Optional.of(payment)
+        );
+
+        doThrow(
+                new RuntimeException(
+                        "Outbox persistence failed"
+                )
+        ).when(outboxEventService)
+                .createPaymentEvent(
+                        payment,
+                        PaymentEventType.PAYMENT_SUCCEEDED
+                );
+
+        RuntimeException exception =
+                assertThrows(
+                        RuntimeException.class,
+                        () ->
+                                service.completeGatewayAttempt(
+                                        attemptId,
+                                        gatewayResult
+                                )
+                );
+
+        assertEquals(
+                "Outbox persistence failed",
+                exception.getMessage()
+        );
+
+        assertEquals(
+                PaymentStatus.SUCCEEDED,
+                payment.getStatus()
+        );
+
+        assertEquals(
+                PaymentAttemptStatus.SUCCEEDED,
+                attempt.getStatus()
+        );
+
+        verify(
+                outboxEventService
+        ).createPaymentEvent(
+                payment,
+                PaymentEventType.PAYMENT_SUCCEEDED
+        );
+
+        verify(
+                paymentAttemptRepository,
+                never()
+        ).save(
+                any(PaymentAttempt.class)
+        );
+
+        verify(
+                paymentRepository,
+                never()
+        ).save(
+                any(Payment.class)
+        );
     }
 
     @Test
@@ -322,16 +565,32 @@ class PaymentProcessingTransactionServiceTest {
         payment.setPaymentId(paymentId);
         payment.setStatus(PaymentStatus.SUCCEEDED);
 
-        when(paymentRepository.findByIdForUpdate(paymentId))
-                .thenReturn(Optional.of(payment));
+        when(
+                paymentRepository.findByIdForUpdate(
+                        paymentId
+                )
+        ).thenReturn(
+                Optional.of(payment)
+        );
 
         assertThrows(
                 InvalidPaymentStateException.class,
-                () -> service.prepareInitialProcessing(paymentId)
+                () ->
+                        service.prepareInitialProcessing(
+                                paymentId
+                        )
         );
 
-        verify(paymentRepository, never())
-                .save(any(Payment.class));
+        verify(
+                paymentRepository,
+                never()
+        ).save(
+                any(Payment.class)
+        );
+
+        verifyNoInteractions(
+                outboxEventService
+        );
     }
 
     @Test
@@ -343,16 +602,33 @@ class PaymentProcessingTransactionServiceTest {
         payment.setPaymentId(paymentId);
         payment.setStatus(PaymentStatus.PENDING);
 
-        when(paymentRepository.findByIdForUpdate(paymentId))
-                .thenReturn(Optional.of(payment));
+        when(
+                paymentRepository.findByIdForUpdate(
+                        paymentId
+                )
+        ).thenReturn(
+                Optional.of(payment)
+        );
 
         assertThrows(
                 InvalidPaymentStateException.class,
-                () -> service.prepareRetryProcessing(paymentId)
+                () ->
+                        service.prepareRetryProcessing(
+                                paymentId
+                        )
         );
 
-        verifyNoInteractions(paymentRetryPolicy);
-        verifyNoInteractions(paymentAttemptService);
+        verifyNoInteractions(
+                paymentRetryPolicy
+        );
+
+        verifyNoInteractions(
+                paymentAttemptService
+        );
+
+        verifyNoInteractions(
+                outboxEventService
+        );
     }
 
     @Test
@@ -371,29 +647,289 @@ class PaymentProcessingTransactionServiceTest {
                         1
                 );
 
-        attempt.setAttemptId(attemptId);
+        attempt.setAttemptId(
+                attemptId
+        );
 
-        when(paymentAttemptRepository.findById(attemptId))
-                .thenReturn(Optional.of(attempt));
+        when(
+                paymentAttemptRepository.findById(
+                        attemptId
+                )
+        ).thenReturn(
+                Optional.of(attempt)
+        );
 
-        when(paymentRepository.findByIdForUpdate(paymentId))
-                .thenReturn(Optional.of(payment));
+        when(
+                paymentRepository.findByIdForUpdate(
+                        paymentId
+                )
+        ).thenReturn(
+                Optional.of(payment)
+        );
 
         assertThrows(
                 InvalidPaymentStateException.class,
-                () -> service.completeGatewayAttempt(
+                () ->
+                        service.completeGatewayAttempt(
+                                attemptId,
+                                PaymentGatewayResult.success(
+                                        "MOCK-TXN-1"
+                                )
+                        )
+        );
+
+        verify(
+                paymentAttemptRepository,
+                never()
+        ).save(
+                any(PaymentAttempt.class)
+        );
+
+        verify(
+                paymentRepository,
+                never()
+        ).save(
+                any(Payment.class)
+        );
+
+        verifyNoInteractions(
+                outboxEventService
+        );
+    }
+
+    @Test
+    void shouldPreparePendingRecovery() {
+
+        UUID paymentId = UUID.randomUUID();
+
+        Payment payment = new Payment();
+        payment.setPaymentId(paymentId);
+        payment.setStatus(PaymentStatus.PENDING);
+
+        PaymentAttempt attempt =
+                pendingAttempt(
+                        paymentId,
+                        1
+                );
+
+        when(
+                paymentRepository.findByIdForUpdate(
+                        paymentId
+                )
+        ).thenReturn(
+                Optional.of(payment)
+        );
+
+        when(
+                paymentAttemptRepository
+                        .findTopByPaymentIdOrderByAttemptNumberDesc(
+                                paymentId
+                        )
+        ).thenReturn(
+                Optional.of(attempt)
+        );
+
+        PaymentAttempt result =
+                service.preparePendingRecovery(
+                        paymentId
+                );
+
+        assertSame(
+                attempt,
+                result
+        );
+
+        assertEquals(
+                PaymentAttemptStatus.PENDING,
+                result.getStatus()
+        );
+
+        verify(
+                paymentRepository
+        ).findByIdForUpdate(
+                paymentId
+        );
+
+        verify(
+                paymentAttemptRepository
+        ).findTopByPaymentIdOrderByAttemptNumberDesc(
+                paymentId
+        );
+
+        verifyNoInteractions(
+                paymentRetryPolicy
+        );
+
+        verifyNoInteractions(
+                paymentAttemptService
+        );
+
+        verifyNoInteractions(
+                outboxEventService
+        );
+    }
+
+    @Test
+    void shouldRejectRecoveryWhenPaymentIsNotPending() {
+
+        UUID paymentId = UUID.randomUUID();
+
+        Payment payment = new Payment();
+        payment.setPaymentId(paymentId);
+        payment.setStatus(PaymentStatus.FAILED);
+
+        when(
+                paymentRepository.findByIdForUpdate(
+                        paymentId
+                )
+        ).thenReturn(
+                Optional.of(payment)
+        );
+
+        assertThrows(
+                InvalidPaymentStateException.class,
+                () ->
+                        service.preparePendingRecovery(
+                                paymentId
+                        )
+        );
+
+        verifyNoInteractions(
+                paymentAttemptRepository
+        );
+
+        verifyNoInteractions(
+                outboxEventService
+        );
+    }
+
+    @Test
+    void shouldRejectRecoveryWhenLatestAttemptIsNotPending() {
+
+        UUID paymentId = UUID.randomUUID();
+
+        Payment payment = new Payment();
+        payment.setPaymentId(paymentId);
+        payment.setStatus(PaymentStatus.PENDING);
+
+        PaymentAttempt attempt =
+                pendingAttempt(
+                        paymentId,
+                        1
+                );
+
+        attempt.setStatus(
+                PaymentAttemptStatus.FAILED
+        );
+
+        when(
+                paymentRepository.findByIdForUpdate(
+                        paymentId
+                )
+        ).thenReturn(
+                Optional.of(payment)
+        );
+
+        when(
+                paymentAttemptRepository
+                        .findTopByPaymentIdOrderByAttemptNumberDesc(
+                                paymentId
+                        )
+        ).thenReturn(
+                Optional.of(attempt)
+        );
+
+        assertThrows(
+                IllegalStateException.class,
+                () ->
+                        service.preparePendingRecovery(
+                                paymentId
+                        )
+        );
+
+        verifyNoInteractions(
+                outboxEventService
+        );
+    }
+
+    @Test
+    void shouldReturnPaymentWhenGatewayCompletionIsReplayed() {
+
+        UUID paymentId = UUID.randomUUID();
+        UUID attemptId = UUID.randomUUID();
+
+        Payment payment = new Payment();
+        payment.setPaymentId(paymentId);
+        payment.setStatus(PaymentStatus.SUCCEEDED);
+
+        PaymentAttempt attempt =
+                pendingAttempt(
+                        paymentId,
+                        1
+                );
+
+        attempt.setAttemptId(
+                attemptId
+        );
+
+        attempt.setStatus(
+                PaymentAttemptStatus.SUCCEEDED
+        );
+
+        attempt.setGateway(
+                "MOCK"
+        );
+
+        attempt.setGatewayTransactionId(
+                "MOCK-TXN-1"
+        );
+
+        when(
+                paymentAttemptRepository.findById(
+                        attemptId
+                )
+        ).thenReturn(
+                Optional.of(attempt)
+        );
+
+        when(
+                paymentRepository.findByIdForUpdate(
+                        paymentId
+                )
+        ).thenReturn(
+                Optional.of(payment)
+        );
+
+        Payment result =
+                service.completeGatewayAttempt(
                         attemptId,
                         PaymentGatewayResult.success(
                                 "MOCK-TXN-1"
                         )
-                )
+                );
+
+        assertSame(
+                payment,
+                result
         );
 
-        verify(paymentAttemptRepository, never())
-                .save(any(PaymentAttempt.class));
+        verify(
+                paymentAttemptRepository,
+                never()
+        ).save(
+                any(PaymentAttempt.class)
+        );
 
-        verify(paymentRepository, never())
-                .save(any(Payment.class));
+        verify(
+                paymentRepository,
+                never()
+        ).save(
+                any(Payment.class)
+        );
+
+        verifyNoInteractions(
+                outboxEventService
+        );
     }
 
     private PaymentAttempt pendingAttempt(

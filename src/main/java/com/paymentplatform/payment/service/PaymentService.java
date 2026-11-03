@@ -270,4 +270,20 @@ public class PaymentService {
 
         return savedPayment;
     }
+
+    public Payment recoverPendingPayment(UUID paymentId) {
+
+        PaymentAttempt pendingAttempt =
+                paymentProcessingTransactionService
+                        .preparePendingRecovery(paymentId);
+
+        PaymentGatewayResult result =
+                paymentGateway.process(pendingAttempt);
+
+        return paymentProcessingTransactionService
+                .completeGatewayAttempt(
+                        pendingAttempt.getAttemptId(),
+                        result
+                );
+    }
 }

@@ -99,6 +99,16 @@ public class PaymentController {
         return toResponse(payment);
     }
 
+    @PostMapping("/{paymentId}/recover")
+    public PaymentResponse recoverPendingPayment(
+            @PathVariable UUID paymentId
+    ) {
+        Payment payment =
+                paymentService.recoverPendingPayment(paymentId);
+
+        return toResponse(payment);
+    }
+
     private PaymentResponse toResponse(Payment payment) {
         return new PaymentResponse(
                 payment.getPaymentId(),

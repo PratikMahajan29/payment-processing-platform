@@ -16,73 +16,198 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class PaymentAttemptServiceTest {
 
     @Mock
-    private PaymentAttemptRepository paymentAttemptRepository;
-
-    @InjectMocks
-    private PaymentAttemptService paymentAttemptService;
+    private PaymentAttemptRepository
+            paymentAttemptRepository;
 
     @Mock
     private PaymentRepository paymentRepository;
 
+    @Mock
+    private GatewayIdempotencyKeyService
+            gatewayIdempotencyKeyService;
+
+    @InjectMocks
+    private PaymentAttemptService
+            paymentAttemptService;
+
     @Test
     void shouldCreateFirstAttempt() {
-        UUID paymentId = UUID.randomUUID();
 
-        Payment payment = new Payment();
-        payment.setPaymentId(paymentId);
+        UUID paymentId =
+                UUID.randomUUID();
 
-        when(paymentRepository.findByIdForUpdate(paymentId))
-                .thenReturn(Optional.of(payment));
+        Payment payment =
+                new Payment();
 
-        when(paymentAttemptRepository
-                .findTopByPaymentIdOrderByAttemptNumberDesc(paymentId))
-                .thenReturn(Optional.empty());
+        payment.setPaymentId(
+                paymentId
+        );
 
-        when(paymentAttemptRepository.save(any(PaymentAttempt.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(
+                paymentRepository
+                        .findByIdForUpdate(paymentId)
+        ).thenReturn(
+                Optional.of(payment)
+        );
 
-        PaymentAttempt result = paymentAttemptService.createAttempt(paymentId);
+        when(
+                paymentAttemptRepository
+                        .findTopByPaymentIdOrderByAttemptNumberDesc(
+                                paymentId
+                        )
+        ).thenReturn(
+                Optional.empty()
+        );
 
-        assertEquals(paymentId, result.getPaymentId());
-        assertEquals(1, result.getAttemptNumber());
-        assertEquals(PaymentAttemptStatus.PENDING, result.getStatus());
+        when(
+                gatewayIdempotencyKeyService.generate(
+                        eq(paymentId),
+                        eq(1)
+                )
+        ).thenReturn(
+                "PAYMENT-"
+                        + paymentId
+                        + "-ATTEMPT-1"
+        );
 
-        verify(paymentAttemptRepository)
-                .findTopByPaymentIdOrderByAttemptNumberDesc(paymentId);
+        when(
+                paymentAttemptRepository.save(
+                        any(PaymentAttempt.class)
+                )
+        ).thenAnswer(
+                invocation ->
+                        invocation.getArgument(0)
+        );
 
-        verify(paymentAttemptRepository)
-                .save(any(PaymentAttempt.class));
+        PaymentAttempt result =
+                paymentAttemptService.createAttempt(
+                        paymentId
+                );
+
+        assertEquals(
+                paymentId,
+                result.getPaymentId()
+        );
+
+        assertEquals(
+                1,
+                result.getAttemptNumber()
+        );
+
+        assertEquals(
+                PaymentAttemptStatus.PENDING,
+                result.getStatus()
+        );
+
+        assertEquals(
+                "PAYMENT-"
+                        + paymentId
+                        + "-ATTEMPT-1",
+                result.getGatewayIdempotencyKey()
+        );
+
+        verify(
+                gatewayIdempotencyKeyService
+        ).generate(
+                paymentId,
+                1
+        );
+
+        verify(
+                paymentAttemptRepository
+        ).save(
+                any(PaymentAttempt.class)
+        );
     }
 
     @Test
     void shouldCreateNextAttemptNumber() {
-        UUID paymentId = UUID.randomUUID();
 
-        Payment payment = new Payment();
-        payment.setPaymentId(paymentId);
+        UUID paymentId =
+                UUID.randomUUID();
 
-        when(paymentRepository.findByIdForUpdate(paymentId))
-                .thenReturn(Optional.of(payment));
+        Payment payment =
+                new Payment();
 
-        PaymentAttempt previousAttempt = new PaymentAttempt();
+        payment.setPaymentId(
+                paymentId
+        );
+
+        when(
+                paymentRepository
+                        .findByIdForUpdate(paymentId)
+        ).thenReturn(
+                Optional.of(payment)
+        );
+
+        PaymentAttempt previousAttempt =
+                new PaymentAttempt();
+
         previousAttempt.setAttemptNumber(2);
 
-        when(paymentAttemptRepository
-                .findTopByPaymentIdOrderByAttemptNumberDesc(paymentId))
-                .thenReturn(Optional.of(previousAttempt));
+        when(
+                paymentAttemptRepository
+                        .findTopByPaymentIdOrderByAttemptNumberDesc(
+                                paymentId
+                        )
+        ).thenReturn(
+                Optional.of(previousAttempt)
+        );
 
-        when(paymentAttemptRepository.save(any(PaymentAttempt.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(
+                gatewayIdempotencyKeyService.generate(
+                        eq(paymentId),
+                        eq(3)
+                )
+        ).thenReturn(
+                "PAYMENT-"
+                        + paymentId
+                        + "-ATTEMPT-3"
+        );
 
-        PaymentAttempt result = paymentAttemptService.createAttempt(paymentId);
+        when(
+                paymentAttemptRepository.save(
+                        any(PaymentAttempt.class)
+                )
+        ).thenAnswer(
+                invocation ->
+                        invocation.getArgument(0)
+        );
 
-        assertEquals(3, result.getAttemptNumber());
-        assertEquals(PaymentAttemptStatus.PENDING, result.getStatus());
+        PaymentAttempt result =
+                paymentAttemptService.createAttempt(
+                        paymentId
+                );
+
+        assertEquals(
+                3,
+                result.getAttemptNumber()
+        );
+
+        assertEquals(
+                PaymentAttemptStatus.PENDING,
+                result.getStatus()
+        );
+
+        assertEquals(
+                "PAYMENT-"
+                        + paymentId
+                        + "-ATTEMPT-3",
+                result.getGatewayIdempotencyKey()
+        );
+
+        verify(
+                gatewayIdempotencyKeyService
+        ).generate(
+                paymentId,
+                3
+        );
     }
 }

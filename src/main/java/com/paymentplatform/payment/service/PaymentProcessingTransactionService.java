@@ -1,6 +1,7 @@
 package com.paymentplatform.payment.service;
 
 import com.paymentplatform.payment.domain.enums.PaymentAttemptStatus;
+import com.paymentplatform.payment.domain.enums.PaymentEventType;
 import com.paymentplatform.payment.domain.enums.PaymentStatus;
 import com.paymentplatform.payment.domain.model.Payment;
 import com.paymentplatform.payment.domain.model.PaymentAttempt;
@@ -24,19 +25,21 @@ public class PaymentProcessingTransactionService {
     private final PaymentAttemptService paymentAttemptService;
     private final PaymentStateMachine paymentStateMachine;
     private final PaymentRetryPolicy paymentRetryPolicy;
+    private final OutboxEventService outboxEventService;
 
     public PaymentProcessingTransactionService(
             PaymentRepository paymentRepository,
             PaymentAttemptRepository paymentAttemptRepository,
             PaymentAttemptService paymentAttemptService,
             PaymentStateMachine paymentStateMachine,
-            PaymentRetryPolicy paymentRetryPolicy
+            PaymentRetryPolicy paymentRetryPolicy, OutboxEventService outboxEventService
     ) {
         this.paymentRepository = paymentRepository;
         this.paymentAttemptRepository = paymentAttemptRepository;
         this.paymentAttemptService = paymentAttemptService;
         this.paymentStateMachine = paymentStateMachine;
         this.paymentRetryPolicy = paymentRetryPolicy;
+        this.outboxEventService = outboxEventService;
     }
 
     @Transactional
@@ -169,17 +172,23 @@ public class PaymentProcessingTransactionService {
                                 )
                         );
 
+        if (attempt.getStatus() != PaymentAttemptStatus.PENDING) {
+
+            if (payment.getStatus() == PaymentStatus.SUCCEEDED
+                    || payment.getStatus() == PaymentStatus.FAILED) {
+                return payment;
+            }
+
+            throw new IllegalStateException(
+                    "Payment attempt is already completed but payment is not in a terminal state: "
+                            + attemptId
+            );
+        }
+
         if (payment.getStatus() != PaymentStatus.PENDING) {
             throw new InvalidPaymentStateException(
                     "Payment must be PENDING when completing gateway attempt: "
                             + payment.getPaymentId()
-            );
-        }
-
-        if (attempt.getStatus() != PaymentAttemptStatus.PENDING) {
-            throw new IllegalStateException(
-                    "Payment attempt must be PENDING when completing gateway attempt: "
-                            + attemptId
             );
         }
 
@@ -207,6 +216,11 @@ public class PaymentProcessingTransactionService {
             paymentStateMachine.moveTo(
                     payment,
                     PaymentStatus.SUCCEEDED
+            );
+
+            outboxEventService.createPaymentEvent(
+                    payment,
+                    PaymentEventType.PAYMENT_SUCCEEDED
             );
 
         } else {
@@ -237,6 +251,11 @@ public class PaymentProcessingTransactionService {
                     payment,
                     PaymentStatus.FAILED
             );
+
+            outboxEventService.createPaymentEvent(
+                    payment,
+                    PaymentEventType.PAYMENT_FAILED
+            );
         }
 
         payment.setUpdatedAt(
@@ -246,5 +265,43 @@ public class PaymentProcessingTransactionService {
         paymentAttemptRepository.save(attempt);
 
         return paymentRepository.save(payment);
+    }
+
+    @Transactional
+    public PaymentAttempt preparePendingRecovery(UUID paymentId) {
+
+        Payment payment =
+                paymentRepository.findByIdForUpdate(paymentId)
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
+                                        "Payment not found: " + paymentId
+                                )
+                        );
+
+        if (payment.getStatus() != PaymentStatus.PENDING) {
+            throw new InvalidPaymentStateException(
+                    "Payment can only be recovered from PENDING state: "
+                            + paymentId
+            );
+        }
+
+        PaymentAttempt latestAttempt =
+                paymentAttemptRepository
+                        .findTopByPaymentIdOrderByAttemptNumberDesc(paymentId)
+                        .orElseThrow(() ->
+                                new IllegalStateException(
+                                        "No payment attempt found for payment: "
+                                                + paymentId
+                                )
+                        );
+
+        if (latestAttempt.getStatus() != PaymentAttemptStatus.PENDING) {
+            throw new IllegalStateException(
+                    "Latest payment attempt is not pending: "
+                            + latestAttempt.getAttemptId()
+            );
+        }
+
+        return latestAttempt;
     }
 }

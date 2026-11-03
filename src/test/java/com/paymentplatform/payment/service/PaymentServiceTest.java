@@ -1502,4 +1502,140 @@ class PaymentServiceTest {
                 any(PaymentGatewayResult.class)
         );
     }
+
+    @Test
+    void shouldRecoverPendingPaymentUsingSameAttempt() {
+
+        UUID paymentId = UUID.randomUUID();
+        UUID attemptId = UUID.randomUUID();
+
+        PaymentAttempt attempt =
+                new PaymentAttempt();
+
+        attempt.setAttemptId(attemptId);
+        attempt.setPaymentId(paymentId);
+        attempt.setAttemptNumber(1);
+        attempt.setStatus(PaymentAttemptStatus.PENDING);
+        attempt.setGatewayIdempotencyKey(
+                "PAYMENT-" + paymentId + "-ATTEMPT-1"
+        );
+
+        PaymentGatewayResult gatewayResult =
+                PaymentGatewayResult.success(
+                        "MOCK-TXN-RECOVERED"
+                );
+
+        Payment expectedPayment =
+                new Payment();
+
+        expectedPayment.setPaymentId(paymentId);
+        expectedPayment.setStatus(PaymentStatus.SUCCEEDED);
+
+        when(
+                paymentProcessingTransactionService
+                        .preparePendingRecovery(paymentId)
+        ).thenReturn(attempt);
+
+        when(
+                paymentGateway.process(attempt)
+        ).thenReturn(gatewayResult);
+
+        when(
+                paymentProcessingTransactionService
+                        .completeGatewayAttempt(
+                                attemptId,
+                                gatewayResult
+                        )
+        ).thenReturn(expectedPayment);
+
+        Payment result =
+                paymentService.recoverPendingPayment(paymentId);
+
+        assertSame(
+                expectedPayment,
+                result
+        );
+
+        assertEquals(
+                PaymentStatus.SUCCEEDED,
+                result.getStatus()
+        );
+
+        verify(
+                paymentProcessingTransactionService
+        ).preparePendingRecovery(paymentId);
+
+        verify(
+                paymentGateway
+        ).process(attempt);
+
+        verify(
+                paymentProcessingTransactionService
+        ).completeGatewayAttempt(
+                attemptId,
+                gatewayResult
+        );
+    }
+
+    @Test
+    void shouldLeavePendingRecoveryUncompletedWhenGatewayThrows() {
+
+        UUID paymentId = UUID.randomUUID();
+        UUID attemptId = UUID.randomUUID();
+
+        PaymentAttempt attempt =
+                new PaymentAttempt();
+
+        attempt.setAttemptId(attemptId);
+        attempt.setPaymentId(paymentId);
+        attempt.setAttemptNumber(1);
+        attempt.setStatus(PaymentAttemptStatus.PENDING);
+        attempt.setGatewayIdempotencyKey(
+                "PAYMENT-" + paymentId + "-ATTEMPT-1"
+        );
+
+        RuntimeException gatewayException =
+                new RuntimeException(
+                        "Gateway timeout"
+                );
+
+        when(
+                paymentProcessingTransactionService
+                        .preparePendingRecovery(paymentId)
+        ).thenReturn(attempt);
+
+        when(
+                paymentGateway.process(attempt)
+        ).thenThrow(gatewayException);
+
+        RuntimeException exception =
+                assertThrows(
+                        RuntimeException.class,
+                        () ->
+                                paymentService.recoverPendingPayment(
+                                        paymentId
+                                )
+                );
+
+        assertSame(
+                gatewayException,
+                exception
+        );
+
+        verify(
+                paymentProcessingTransactionService
+        ).preparePendingRecovery(paymentId);
+
+        verify(
+                paymentGateway
+        ).process(attempt);
+
+        verify(
+                paymentProcessingTransactionService,
+                never()
+        ).completeGatewayAttempt(
+                any(UUID.class),
+                any(PaymentGatewayResult.class)
+        );
+    }
 }

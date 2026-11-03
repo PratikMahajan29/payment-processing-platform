@@ -108,4 +108,69 @@ class PaymentControllerTest {
                                 .value("Payment not found: " + paymentId)
                 );
     }
+
+    @Test
+    void shouldRecoverPendingPayment() throws Exception {
+
+        UUID paymentId =
+                UUID.fromString(
+                        "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+                );
+
+        Payment payment = new Payment();
+
+        payment.setPaymentId(paymentId);
+        payment.setMerchantId(
+                UUID.fromString(
+                        "11111111-1111-1111-1111-111111111111"
+                )
+        );
+        payment.setOrderId(UUID.randomUUID());
+        payment.setCustomerId(UUID.randomUUID());
+        payment.setAmount(49950L);
+        payment.setCurrency("INR");
+        payment.setStatus(PaymentStatus.SUCCEEDED);
+        payment.setIdempotencyKey("recovery-test");
+        payment.setCreatedAt(OffsetDateTime.now());
+        payment.setUpdatedAt(OffsetDateTime.now());
+
+        when(
+                paymentService.recoverPendingPayment(paymentId)
+        ).thenReturn(payment);
+
+        when(
+                moneyService.toMajorUnits(
+                        49950L,
+                        "INR"
+                )
+        ).thenReturn(
+                new java.math.BigDecimal("499.50")
+        );
+
+        mockMvc.perform(
+                        org.springframework.test.web.servlet.request
+                                .MockMvcRequestBuilders
+                                .post(
+                                        "/api/v1/payments/{paymentId}/recover",
+                                        paymentId
+                                )
+                )
+                .andExpect(status().isOk())
+                .andExpect(
+                        jsonPath("$.paymentId")
+                                .value(paymentId.toString())
+                )
+                .andExpect(
+                        jsonPath("$.status")
+                                .value("SUCCEEDED")
+                )
+                .andExpect(
+                        jsonPath("$.amount")
+                                .value(499.50)
+                );
+
+        verify(
+                paymentService
+        ).recoverPendingPayment(paymentId);
+    }
 }
